@@ -34,6 +34,7 @@ import gc
 import argparse
 import functools
 from utils import Config, set_seed
+from datetime import timedelta
 
 
 def main():
@@ -42,12 +43,36 @@ def main():
     parser.add_argument("config_file")
     args = parser.parse_args()
 
-    # init distributed environment
-    dist.init_process_group("nccl")
-    local_rank = int(os.environ["LOCAL_RANK"])
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
+    # Initialize distributed environment
+    dist.init_process_group(
+        backend="nccl",
+        init_method="env://",
+        timeout=timedelta(seconds=3600))
+
+    # Get rank information
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))  # Use .get() to avoid KeyError
+    rank = int(os.environ.get("RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+
+    # Debug GPU availability
+    num_gpus = torch.cuda.device_count()
+    print(f"Rank {rank}, Local Rank {local_rank}, Available GPUs: {num_gpus}")
+
+    # Ensure local_rank is within valid GPU indices
+    if local_rank >= num_gpus:
+        raise RuntimeError(f"Invalid local_rank {local_rank}, only {num_gpus} GPUs available.")
+
+    # Set the correct GPU device
     torch.cuda.set_device(local_rank)
+    print(f"Process {dist.get_rank()} using GPU {torch.cuda.current_device()} of {torch.cuda.device_count()} available GPUs.")
+
+
+    # # init distributed environment
+    # dist.init_process_group("nccl")
+    # local_rank = int(os.environ["LOCAL_RANK"])
+    # rank = int(os.environ["RANK"])
+    # world_size = int(os.environ["WORLD_SIZE"])
+    # torch.cuda.set_device(local_rank)
 
     # load the configuration file
     with open(args.config_file) as f:
